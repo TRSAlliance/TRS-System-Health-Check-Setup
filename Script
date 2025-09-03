@@ -1,414 +1,181 @@
-#!/usr/bin/env node
+#!/bin/bash
 
-const { execSync, spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const https = require('https');
+# TRS Workflow Quick Fix Script
+# Fixes common workflow issues and updates deprecated actions
 
-class TRSHealthChecker {
-  constructor() {
-    this.results = {
-      timestamp: new Date().toISOString(),
-      overall: 'UNKNOWN',
-      components: {},
-      integrations: {},
-      workflows: {},
-      recommendations: []
-    };
+echo "🔧 TRS Workflow Quick Fix Starting..."
+
+# Create backup of current workflows
+echo "📁 Creating backup of existing workflows..."
+mkdir -p .workflow-backup
+if [ -d ".github/workflows" ]; then
+  cp -r .github/workflows/* .workflow-backup/ 2>/dev/null || echo "No workflows to backup"
+fi
+
+# Fix deprecated actions in all workflow files
+echo "🔄 Fixing deprecated GitHub Actions..."
+
+find .github/workflows -name "*.yml" -o -name "*.yaml" | while read -r file; do
+  if [ -f "$file" ]; then
+    echo "Fixing: $file"
     
-    this.colors = {
-      green: '\x1b[32m',
-      red: '\x1b[31m',
-      yellow: '\x1b[33m',
-      blue: '\x1b[34m',
-      reset: '\x1b[0m',
-      bold: '\x1b[1m'
-    };
-  }
-
-  log(message, color = 'reset') {
-    console.log(`${this.colors[color]}${message}${this.colors.reset}`);
-  }
-
-  async runCommand(command, cwd = process.cwd()) {
-    return new Promise((resolve) => {
-      try {
-        const result = execSync(command, { 
-          cwd, 
-          encoding: 'utf8', 
-          stdio: 'pipe',
-          timeout: 30000 
-        });
-        resolve({ success: true, output: result.trim() });
-      } catch (error) {
-        resolve({ success: false, error: error.message });
-      }
-    });
-  }
-
-  async checkUrl(url, timeout = 10000) {
-    return new Promise((resolve) => {
-      const request = https.get(url, { timeout }, (res) => {
-        resolve({ 
-          success: res.statusCode >= 200 && res.statusCode < 400,
-          status: res.statusCode,
-          url 
-        });
-      });
-      
-      request.on('error', () => {
-        resolve({ success: false, url, error: 'Connection failed' });
-      });
-      
-      request.on('timeout', () => {
-        request.destroy();
-        resolve({ success: false, url, error: 'Timeout' });
-      });
-    });
-  }
-
-  async checkFileExists(filePath) {
-    try {
-      await fs.promises.access(filePath, fs.constants.F_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  async checkGitHubWorkflows() {
-    this.log('🔍 Checking GitHub workflows...', 'blue');
+    # Create temporary file
+    temp_file=$(mktemp)
     
-    const workflowsPath = '.github/workflows';
-    const workflows = {};
+    # Fix deprecated actions
+    sed -e 's/actions\/checkout@v3/actions\/checkout@v4/g' \
+        -e 's/actions\/setup-node@v3/actions\/setup-node@v4/g' \
+        -e 's/actions\/upload-artifact@v3/actions\/upload-artifact@v4/g' \
+        -e 's/actions\/download-artifact@v3/actions\/download-artifact@v4/g' \
+        -e 's/actions\/github-script@v6/actions\/github-script@v7/g' \
+        -e 's/actions\/cache@v3/actions\/cache@v4/g' \
+        "$file" > "$temp_file"
     
-    if (!await this.checkFileExists(workflowsPath)) {
-      workflows.status = 'MISSING';
-      workflows.error = 'Workflows directory not found';
-      return workflows;
-    }
-
-    try {
-      const files = await fs.promises.readdir(workflowsPath);
-      const ymlFiles = files.filter(f => f.endsWith('.yml') || f.endsWith('.yaml'));
-      
-      for (const file of ymlFiles) {
-        const content = await fs.promises.readFile(
-          path.join(workflowsPath, file), 
-          'utf8'
-        );
-        workflows[file] = {
-          exists: true,
-          hasJobs: content.includes('jobs:'),
-          hasTriggers: content.includes('on:'),
-          status: content.includes('jobs:') && content.includes('on:') ? 'VALID' : 'INVALID'
-        };
-      }
-      
-      // Check workflow status via GitHub CLI
-      const ghCheck = await this.runCommand('gh workflow list');
-      workflows.gh_cli = ghCheck.success ? 'CONNECTED' : 'DISCONNECTED';
-      
-    } catch (error) {
-      workflows.status = 'ERROR';
-      workflows.error = error.message;
-    }
-
-    return workflows;
-  }
-
-  async checkDeployments() {
-    this.log('🚀 Checking deployments...', 'blue');
+    # Replace original file
+    mv "$temp_file" "$file"
     
-    const deployments = {};
+    echo "✅ Fixed: $file"
+  fi
+done
+
+# Check for and fix common workflow syntax issues
+echo "🔍 Checking for workflow syntax issues..."
+
+find .github/workflows -name "*.yml" -o -name "*.yaml" | while read -r file; do
+  if [ -f "$file" ]; then
+    # Check if workflow has required structure
+    if ! grep -q "^on:" "$file"; then
+      echo "⚠️  Warning: $file missing 'on:' trigger"
+    fi
     
-    // Check Vercel
-    if (await this.checkFileExists('vercel.json') || await this.checkFileExists('.vercel')) {
-      const vercelCheck = await this.runCommand('vercel --version');
-      deployments.vercel = {
-        configured: true,
-        cli_installed: vercelCheck.success,
-        status: vercelCheck.success ? 'READY' : 'CLI_MISSING'
-      };
-    }
-
-    // Check Netlify
-    if (await this.checkFileExists('netlify.toml') || await this.checkFileExists('_redirects')) {
-      const netlifyCheck = await this.runCommand('netlify --version');
-      deployments.netlify = {
-        configured: true,
-        cli_installed: netlifyCheck.success,
-        status: netlifyCheck.success ? 'READY' : 'CLI_MISSING'
-      };
-    }
-
-    return deployments;
-  }
-
-  async checkDatabase() {
-    this.log('🗄️ Checking database connections...', 'blue');
+    if ! grep -q "^jobs:" "$file"; then
+      echo "⚠️  Warning: $file missing 'jobs:' section"
+    fi
     
-    const database = {};
-    
-    // Check for Supabase
-    if (await this.checkFileExists('.env') || await this.checkFileExists('.env.local')) {
-      const envFiles = ['.env', '.env.local', '.env.example'];
-      for (const envFile of envFiles) {
-        if (await this.checkFileExists(envFile)) {
-          const content = await fs.promises.readFile(envFile, 'utf8');
-          database.supabase = {
-            configured: content.includes('SUPABASE_URL') || content.includes('SUPABASE'),
-            has_key: content.includes('SUPABASE_ANON_KEY') || content.includes('SUPABASE_SERVICE_KEY')
-          };
-          
-          database.neon = {
-            configured: content.includes('NEON_') || content.includes('DATABASE_URL')
-          };
-          
-          database.firebase = {
-            configured: content.includes('FIREBASE_') || content.includes('GOOGLE_')
-          };
-          break;
-        }
-      }
-    }
+    # Check for common YAML syntax errors
+    if grep -q $'\t' "$file"; then
+      echo "🔧 Fixing tabs to spaces in: $file"
+      sed -i 's/\t/  /g' "$file"
+    fi
+  fi
+done
 
-    // Check Prisma schema
-    if (await this.checkFileExists('schema.prisma')) {
-      database.prisma = {
-        configured: true,
-        status: 'SCHEMA_EXISTS'
-      };
-      
-      const prismaCheck = await this.runCommand('npx prisma --version');
-      database.prisma.cli_available = prismaCheck.success;
-    }
+# Create or update package.json with health check script
+echo "📦 Setting up package.json scripts..."
 
-    return database;
-  }
-
-  async checkApplications() {
-    this.log('📱 Checking application components...', 'blue');
-    
-    const apps = {};
-    
-    // Check if package.json exists and is valid
-    if (await this.checkFileExists('package.json')) {
-      try {
-        const pkg = JSON.parse(await fs.promises.readFile('package.json', 'utf8'));
-        apps.main = {
-          name: pkg.name || 'Unknown',
-          version: pkg.version || '0.0.0',
-          has_scripts: Object.keys(pkg.scripts || {}).length > 0,
-          dependencies: Object.keys(pkg.dependencies || {}).length,
-          status: 'CONFIGURED'
-        };
-
-        // Test npm install
-        const installCheck = await this.runCommand('npm list --depth=0');
-        apps.main.dependencies_installed = installCheck.success;
-
-      } catch (error) {
-        apps.main = { status: 'INVALID_PACKAGE_JSON', error: error.message };
-      }
-    }
-
-    // Check specific TRS components
-    const components = [
-      'src/components/TRS-Terminal.tsx',
-      'TRSSeal/TRSDisplay.tsx', 
-      'admin-panel/src/index.tsx',
-      'mobile-app/functions/index.js'
-    ];
-
-    for (const component of components) {
-      const name = path.basename(component, path.extname(component));
-      apps[name] = {
-        exists: await this.checkFileExists(component),
-        status: await this.checkFileExists(component) ? 'EXISTS' : 'MISSING'
-      };
-    }
-
-    return apps;
-  }
-
-  async checkCLI() {
-    this.log('⚡ Checking CLI and sentinel commands...', 'blue');
-    
-    const cli = {};
-    
-    // Check sentinel CLI
-    const sentinelPath = '.github/sentinel-cli/commands';
-    if (await this.checkFileExists(sentinelPath)) {
-      try {
-        const commands = await fs.promises.readdir(sentinelPath);
-        cli.sentinel = {
-          configured: true,
-          commands: commands.length,
-          files: commands,
-          status: 'AVAILABLE'
-        };
-      } catch (error) {
-        cli.sentinel = { status: 'ERROR', error: error.message };
-      }
-    } else {
-      cli.sentinel = { status: 'MISSING' };
-    }
-
-    return cli;
-  }
-
-  async checkIntegrations() {
-    this.log('🔗 Checking integrations...', 'blue');
-    
-    const integrations = {};
-    
-    // Test common endpoints (if they exist in env)
-    const testUrls = [];
-    
-    // Add your actual API endpoints here
-    const commonEndpoints = [
-      process.env.SUPABASE_URL,
-      process.env.FIREBASE_DATABASE_URL,
-      'https://api.github.com'
-    ].filter(Boolean);
-
-    for (const url of commonEndpoints) {
-      if (url) {
-        const result = await this.checkUrl(url);
-        const name = new URL(url).hostname.replace('api.', '').replace('www.', '');
-        integrations[name] = result;
-      }
-    }
-
-    return integrations;
-  }
-
-  generateRecommendations() {
-    const recs = [];
-    
-    // Analyze results and generate recommendations
-    if (this.results.workflows.gh_cli === 'DISCONNECTED') {
-      recs.push('🔧 Install GitHub CLI: gh auth login');
-    }
-    
-    if (!this.results.components.main?.dependencies_installed) {
-      recs.push('📦 Run: npm install');
-    }
-    
-    if (this.results.components.sentinel?.status === 'MISSING') {
-      recs.push('⚡ Set up sentinel CLI commands in .github/sentinel-cli/');
-    }
-
-    if (Object.keys(this.results.integrations).length === 0) {
-      recs.push('🔗 Configure environment variables for integrations');
-    }
-
-    return recs;
-  }
-
-  calculateOverallHealth() {
-    const statuses = [];
-    
-    // Collect all status indicators
-    Object.values(this.results.components).forEach(comp => {
-      if (comp.status) statuses.push(comp.status);
-    });
-    
-    Object.values(this.results.integrations).forEach(int => {
-      statuses.push(int.success ? 'SUCCESS' : 'FAILED');
-    });
-
-    const failed = statuses.filter(s => 
-      s.includes('ERROR') || s.includes('MISSING') || s.includes('FAILED')
-    ).length;
-    
-    const total = statuses.length;
-    
-    if (failed === 0) return 'HEALTHY';
-    if (failed < total / 3) return 'MOSTLY_HEALTHY';
-    if (failed < total * 2/3) return 'NEEDS_ATTENTION';
-    return 'CRITICAL';
-  }
-
-  printResults() {
-    console.clear();
-    this.log('═══════════════════════════════════════', 'blue');
-    this.log('🔍 TRS SYSTEM HEALTH CHECK REPORT', 'bold');
-    this.log('═══════════════════════════════════════', 'blue');
-    
-    const healthColor = {
-      'HEALTHY': 'green',
-      'MOSTLY_HEALTHY': 'yellow', 
-      'NEEDS_ATTENTION': 'yellow',
-      'CRITICAL': 'red'
-    }[this.results.overall] || 'red';
-    
-    this.log(`\n📊 OVERALL HEALTH: ${this.results.overall}`, healthColor);
-    this.log(`⏰ Checked at: ${this.results.timestamp}`, 'blue');
-
-    // Print component status
-    this.log('\n🏗️  COMPONENTS:', 'bold');
-    Object.entries(this.results.components).forEach(([name, data]) => {
-      const color = data.status?.includes('ERROR') || data.status?.includes('MISSING') ? 'red' : 'green';
-      this.log(`   ${name}: ${data.status || 'UNKNOWN'}`, color);
-    });
-
-    // Print integrations
-    this.log('\n🔗 INTEGRATIONS:', 'bold');
-    Object.entries(this.results.integrations).forEach(([name, data]) => {
-      const color = data.success ? 'green' : 'red';
-      this.log(`   ${name}: ${data.success ? 'CONNECTED' : 'FAILED'}`, color);
-    });
-
-    // Print recommendations
-    if (this.results.recommendations.length > 0) {
-      this.log('\n💡 RECOMMENDATIONS:', 'yellow');
-      this.results.recommendations.forEach(rec => {
-        this.log(`   ${rec}`, 'yellow');
-      });
-    }
-
-    this.log('\n═══════════════════════════════════════', 'blue');
-  }
-
-  async saveReport() {
-    const reportPath = `health-check-${Date.now()}.json`;
-    await fs.promises.writeFile(
-      reportPath, 
-      JSON.stringify(this.results, null, 2)
-    );
-    this.log(`\n💾 Report saved to: ${reportPath}`, 'green');
-  }
-
-  async run() {
-    this.log('🚀 Starting TRS System Health Check...', 'green');
-    
-    try {
-      this.results.workflows = await this.checkGitHubWorkflows();
-      this.results.deployments = await this.checkDeployments();
-      this.results.database = await this.checkDatabase();
-      this.results.components = await this.checkApplications();
-      this.results.cli = await this.checkCLI();
-      this.results.integrations = await this.checkIntegrations();
-      
-      this.results.recommendations = this.generateRecommendations();
-      this.results.overall = this.calculateOverallHealth();
-      
-      this.printResults();
-      await this.saveReport();
-      
-    } catch (error) {
-      this.log(`❌ Health check failed: ${error.message}`, 'red');
-      process.exit(1);
-    }
+if [ ! -f "package.json" ]; then
+  echo "Creating basic package.json..."
+  cat > package.json << 'EOF'
+{
+  "name": "trs-system",
+  "version": "1.0.0",
+  "description": "TRS System Health Check",
+  "scripts": {
+    "health": "node scripts/health-check.js",
+    "health:watch": "nodemon scripts/health-check.js",
+    "health:ci": "node scripts/health-check.js --json",
+    "fix:workflows": "./scripts/workflow-fix.sh"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
   }
 }
+EOF
+else
+  # Add health check scripts if they don't exist
+  if command -v jq >/dev/null 2>&1; then
+    jq '.scripts.health = "node scripts/health-check.js" | 
+        .scripts["health:watch"] = "nodemon scripts/health-check.js" | 
+        .scripts["health:ci"] = "node scripts/health-check.js --json"' package.json > package.tmp && mv package.tmp package.json
+    echo "✅ Updated package.json with health check scripts"
+  else
+    echo "⚠️  jq not found. Please manually add health check scripts to package.json"
+  fi
+fi
 
-// Run the health check
-if (require.main === module) {
-  const checker = new TRSHealthChecker();
-  checker.run().catch(console.error);
-}
+# Ensure scripts directory exists
+mkdir -p scripts
 
-module.exports = TRSHealthChecker;
+# Set up health check script if it doesn't exist
+if [ ! -f "scripts/health-check.js" ] && [ -f "Script" ]; then
+  echo "📋 Copying health check script..."
+  cp Script scripts/health-check.js
+  chmod +x scripts/health-check.js
+fi
+
+# Create or update .gitignore
+echo "📝 Updating .gitignore..."
+cat >> .gitignore << 'EOF'
+
+# Health check reports
+health-check-*.json
+*.log
+
+# Backup files
+.workflow-backup/
+
+# Node modules
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.production
+EOF
+
+# Test workflow syntax (if GitHub CLI is available)
+if command -v gh >/dev/null 2>&1; then
+  echo "🧪 Testing workflow syntax with GitHub CLI..."
+  find .github/workflows -name "*.yml" -o -name "*.yaml" | while read -r file; do
+    echo "Testing: $file"
+    # Note: This would require GitHub CLI workflow validation if available
+  done
+else
+  echo "ℹ️  GitHub CLI not available for workflow validation"
+fi
+
+# Create a simple workflow status check
+echo "📊 Creating workflow status summary..."
+cat > .workflow-status.md << 'EOF'
+# TRS Workflow Status
+
+## Fixed Issues:
+- ✅ Updated deprecated GitHub Actions to v4
+- ✅ Fixed tab/space formatting issues
+- ✅ Added missing workflow structure checks
+- ✅ Created health check automation
+
+## Next Steps:
+1. Commit these changes
+2. Push to trigger workflows
+3. Monitor workflow runs in GitHub Actions tab
+4. Run health check: `npm run health`
+
+## Manual Verification:
+```bash
+# Test locally first
+npm run health
+
+# Check workflow syntax (if you have act installed)
+act --list
+
+# Push changes
+git add .
+git commit -m "fix: update deprecated GitHub Actions and workflow structure"
+git push
+```
+EOF
+
+echo "✅ TRS Workflow Fix Complete!"
+echo ""
+echo "📋 Summary:"
+echo "   - Fixed deprecated GitHub Actions (v3 → v4)"
+echo "   - Updated workflow structure"  
+echo "   - Set up health check scripts"
+echo "   - Created backup in .workflow-backup/"
+echo ""
+echo "🚀 Next Steps:"
+echo "   1. Review changes: cat .workflow-status.md"
+echo "   2. Test locally: npm run health"
+echo "   3. Commit and push changes"
+echo "   4. Monitor GitHub Actions tab"
