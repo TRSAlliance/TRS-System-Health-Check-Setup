@@ -1,0 +1,7 @@
+{
+  "scripts": {
+    "health": "node scripts/health-check.js",
+    "health:watch": "nodemon scripts/health-check.js",
+    "health:ci": "node scripts/health-check.js --json"
+  }
+}
