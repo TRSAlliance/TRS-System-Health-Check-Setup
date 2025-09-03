@@ -1,0 +1,22 @@
+name: System Health Check
+on:
+  push:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 8 * * *'  # Daily at 8 AM
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - run: npm install
+      - run: npm run health:ci
+      - name: Upload Health Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: health-report
+          path: health-check-*.json
