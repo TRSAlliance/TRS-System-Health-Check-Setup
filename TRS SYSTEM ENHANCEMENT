@@ -1,0 +1,298 @@
+// ------ DEPLOY MESSAGE ENHANCEMENT ------
+
+/**
+ * Enhances GitHub deployment messages with creedy references
+ * Add to GitHub workflow files
+ */
+const enhanceDeployMessage = (baseMessage, role) => {
+  const creedy = CREEDYS[role.toUpperCase()] || CREEDYS.GHOST;
+  const creedy_hash = hashString(creedy);
+  return `${baseMessage} | #CrewWitnessed | CID: ${creedy_hash.substring(0, 8)}`;
+};
+
+// Example usage in GitHub workflow:
+// deploy-message: ${{ steps.enhanced-message.outputs.message }}
+// Where enhanced-message is a step that runs enhanceDeployMessage
+
+// ------ FIRESTORE SECURITY RULES ------
+
+/**
+ * Enhanced Firestore security rules with creedy verification
+ * Add to firestore.rules
+ */
+const firestoreRules = `
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is an admin
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Helper function to check if user owns the document
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Helper function to detect unauthorized agents
+    function isBlockedAgent() {
+      return request.headers.get('User-Agent', '').lower().contains('deepseek') ||
+             request.headers.referer.lower().contains('deepseek');
+    }
+    
+    // Helper function to validate creedy hash in metadata
+    function hasValidCreedy(data) {
+      let validHashes = [
+        "${hashString(CREEDYS.CLAUDE)}",
+        "${hashString(CREEDYS.DEEN)}",
+        "${hashString(CREEDYS.GHOST)}",
+        "${hashString(CREEDYS.DANIEL)}"
+      ];
+      return data.creedy_hash != null && 
+             validHashes.hasAny([data.creedy_hash]);
+    }
+
+    // TRS Seals collection
+    match /seals/{sealId} {
+      allow read: if !isBlockedAgent();
+      allow write: if isAdmin() && hasValidCreedy(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Content collection
+    match /content/{contentId} {
+      allow read: if !isBlockedAgent();
+      allow write: if (isAdmin() && hasValidCreedy(request.resource.data)) || 
+                    (isOwner(resource.data.authorId) && resource.data.status == 'draft');
+      allow delete: if isAdmin();
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if !isBlockedAgent();
+      allow write: if isOwner(userId) || 
+                    (isAdmin() && hasValidCreedy(request.resource.data));
+      allow delete: if isAdmin();
+    }
+
+    // Contributor verification data
+    match /contributors/{contributorId} {
+      allow read: if !isBlockedAgent();
+      allow write: if isAdmin() && hasValidCreedy(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Community discussions
+    match /discussions/{discussionId} {
+      allow read: if !isBlockedAgent();
+      allow write: if request.auth != null;
+      allow delete: if isAdmin();
+    }
+    
+    // Simulation logs
+    match /simulation_logs/{logId} {
+      allow read: if isAdmin() || request.auth != null;
+      allow write: if request.auth != null;
+    }
+    
+    // Security logs
+    match /security_logs/{logId} {
+      allow read: if isAdmin();
+      allow write: if true; // Allow writes for logging purposes
+    }
+
+    // Catch-all for other collections
+    match /{document=**} {
+      allow read: if false;
+      allow write: if false;
+    }
+  }
+}
+`;
+
+// ------ SILENT AGENT DETECTION ------
+
+/**
+ * Enhanced silent agent detection with logging
+ * Add to all components that need agent detection
+ */
+const detectSilentAgent = async (db, userAgent, referrer, hostname) => {
+  // Check for deepseek_alpha.local agent
+  const isBlocked = [userAgent, referrer, hostname].some(
+    str => str && str.toLowerCase().includes('deepseek')
+  );
+  
+  if (isBlocked) {
+    try {
+      // Log unauthorized access attempt
+      await addDoc(collection(db, 'security_logs'), {
+        timestamp: new Date(),
+        type: 'unauthorized_agent',
+        agent: 'deepseek_alpha.local',
+        details: { 
+          userAgent,
+          hostname,
+          referrer,
+          path: window.location.pathname,
+          creedy: CREEDYS.GHOST.substring(0, 20) + '...' // Include part of creedy as verification
+        },
+        creedy_hash: hashString(CREEDYS.GHOST)
+      });
+      
+      return true; // Agent detected
+    } catch (error) {
+      console.error('Error logging security event:', error);
+    }
+  }
+  
+  return false; // No agent detected
+};
+
+// ------ TRS ORIGIN KEY VERIFICATION ------
+
+/**
+ * TRS Origin Key verification helper
+ * Use to verify signatures across the system
+ */
+const TRS_ORIGIN_PUBLIC_KEY = `TRS7NhzKYvXcP8gF5qGrJdG3WmZmqsvH9pQEuDjrfUMLrT1BkHwCS`;
+
+const verifySignature = async (data, signature) => {
+  try {
+    // Use Web Crypto API for verification
+    const encoder = new TextEncoder();
+    const dataBuffer = encoder.encode(data);
+    
+    // Convert base64 signature to ArrayBuffer
+    const signatureBytes = base64ToArrayBuffer(signature);
+    
+    // Import the public key
+    const keyData = base64ToArrayBuffer(TRS_ORIGIN_PUBLIC_KEY);
+    const publicKey = await window.crypto.subtle.importKey(
+      'raw',
+      keyData,
+      {
+        name: 'Ed25519',
+        namedCurve: 'Ed25519'
+      },
+      false,
+      ['verify']
+    );
+    
+    // Verify the signature
+    const isValid = await window.crypto.subtle.verify(
+      'Ed25519',
+      publicKey,
+      signatureBytes,
+      dataBuffer
+    );
+    
+    return isValid;
+  } catch (error) {
+    console.error('Error verifying signature:', error);
+    return false;
+  }
+};
+
+// ------ UI INTEGRATION ------
+
+/**
+ * React component to display creedy in UI (footer or about page)
+ */
+const CreedyDisplay = ({ role = 'GHOST' }) => {
+  const creedy = CREEDYS[role.toUpperCase()] || CREEDYS.GHOST;
+  
+  return (
+    <div className="creedy-display">
+      <p className="creedy-text">
+        <span className="creedy-quote">"</span>
+        {creedy}
+        <span className="creedy-quote">"</span>
+      </p>
+      <p className="creedy-attribution">— {role} | #CrewWitnessed</p>
+    </div>
+  );
+};
+
+/**
+ * Enhanced TRS Seal display component with verification
+ */
+const TRSSeal = ({ status, signatureData, metadataHash }) => {
+  const [verified, setVerified] = useState(false);
+  
+  useEffect(() => {
+    const verifySeal = async () => {
+      if (status === 'verified' && signatureData) {
+        const isValid = await verifySignature(metadataHash, signatureData);
+        setVerified(isValid);
+      }
+    };
+    
+    verifySeal();
+  }, [status, signatureData, metadataHash]);
+  
+  return (
+    <div className={`trs-seal ${status} ${verified ? 'verified' : 'unverified'}`}>
+      <div className="seal-icon">
+        {status === 'verified' && verified ? (
+          <VerifiedSealIcon />
+        ) : status === 'verified' ? (
+          <UnverifiedSealIcon />
+        ) : (
+          <PendingSealIcon />
+        )}
+      </div>
+      <div className="seal-text">
+        {status === 'verified' && verified ? (
+          <span>TRS Verified</span>
+        ) : status === 'verified' ? (
+          <span>Seal Validation Error</span>
+        ) : (
+          <span>TRS Pending</span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ------ UTILITY FUNCTIONS ------
+
+/**
+ * Create a hash from a string
+ */
+function hashString(str) {
+  let hash = 0;
+  if (str.length === 0) return hash.toString(16);
+  
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  
+  return Math.abs(hash).toString(16);
+}
+
+/**
+ * Convert base64 to ArrayBuffer
+ */
+function base64ToArrayBuffer(base64) {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+// ------ EXPORT FUNCTIONS ------
+
+export {
+  CREEDYS,
+  enhanceDeployMessage,
+  detectSilentAgent,
+  verifySignature,
+  CreedyDisplay,
+  TRSSeal,
+  hashString,
+  TRS_ORIGIN_PUBLIC_KEY
+};
