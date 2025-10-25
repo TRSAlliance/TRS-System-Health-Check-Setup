@@ -1,0 +1,31 @@
+. Add shell: bash to every run: block
+Just to avoid environment differences on GitHub runners (Ubuntu uses bash by default but it's best practice to declare it).
+
+yaml
+Copy
+Edit
+run: |
+  # your script
+shell: bash
+2. Optional: Add gh auth for gist create step
+You’re using gh gist create, so make sure your GitHub token includes gist scope (either add to your secrets or include this in your docs):
+
+yaml
+Copy
+Edit
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN_WITH_GIST }}
+And update the gh command to use it if needed:
+
+bash
+Copy
+Edit
+gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN_WITH_GIST }}"
+✅ Your Deployment Strategy Is Now:
+Safe.
+
+Transparent.
+
+Auditable.
+
+Extendable (can integrate with TRS Mesh, Admin UI, or Mobile Command).
