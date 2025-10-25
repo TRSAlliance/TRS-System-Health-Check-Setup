@@ -1,3 +1,6 @@
+The following `npm` commands configure package scripts for health checks: `npm pkg set scripts.health="node scripts/health-check.js"`, `npm pkg set scripts.health:watch="nodemon scripts/health-check.js"`, and `npm pkg set scripts.health:ci="node scripts/health-check.js --json"`. These are equivalent to the following `package.json` configuration:
+
+```json
 {
   "scripts": {
     "health": "node scripts/health-check.js",
@@ -5,3 +8,4 @@
     "health:ci": "node scripts/health-check.js --json"
   }
 }
+```
