@@ -1,0 +1,86 @@
+name: TRS-15 Sentinel Protocol
+on: 
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  security-scan:
+    name: 🛡️ TRS Sentinel Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: 🔐 Checkout with Security
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # Limits git history exposure
+          persist-credentials: false
+
+      - name: � Install with Audit
+        run: |
+          npm ci --omit=dev --audit
+          npm audit --production --json > npm-audit.json
+          node scripts/security-cli.js analyze-audit npm-audit.json
+          
+      - name: 🕵️‍♂️ Run Sentinel CLI
+        id: sentinel
+        run: |
+          node scripts/sentinel-cli.js scan-logs --strict --output=json > scan-results.json
+          echo "results=$(jq -c '.' scan-results.json)" >> $GITHUB_OUTPUT
+        continue-on-error: true  # Continue to allow artifact upload
+
+      - name: 🔍 GitHub Forensic Audit
+        run: |
+          node scripts/security-cli.js github-audit \
+            --depth=3 \
+            --token=${{ secrets.GH_FORENSIC_TOKEN }}
+
+      - name: 📜 Ledger Integrity Check
+        run: |
+          node scripts/ledger-cli.js crosscheck \
+            --verify-signatures \
+            --threshold=3
+
+      - name: ☁️ Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: trs-scan-${{ github.run_id }}
+          path: |
+            scan-results.json
+            npm-audit.json
+            ledger-verification.log
+
+    env:
+      SUPABASE_URL: ${{ secrets.TRS_SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.TRS_SUPABASE_ROLE_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GH_FORENSIC_TOKEN }}
+      TRS_ENV: "ci"
+      NODE_ENV: "production"
+
+  # Post-scan analysis (runs after security-scan completes)
+  threat-assessment:
+    name: 🧠 TRS Threat Assessment
+    needs: security-scan
+    runs-on: ubuntu-latest
+    if: always()  # Runs even if previous job fails
+    
+    steps:
+      - name: 📥 Download Artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: trs-scan-${{ github.run_id }}
+
+      - name: 🚨 Run Threat Matrix
+        run: |
+          node scripts/sentinel-cli.js assess-threats \
+            --scan=scan-results.json \
+            --audit=npm-audit.json \
+            --output=threat-report.md
+            
+      - name: 📤 Upload Threat Report
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: threat-report.md
