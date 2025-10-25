@@ -1,24 +1,25 @@
 {
   "name": "trs-system-health-check-setup",
   "version": "1.0.0",
-  "description": "TRS Alliance System Health Check",
+  "description": "TRS Alliance System Health Check — v2.5 Diagnostic & Self-Healing Utility",
+  "license": "MIT",
   "scripts": {
     "start": "node src/index.js",
     "test": "jest",
     "health": "node scripts/health-check.js",
     "health:watch": "npx nodemon scripts/health-check.js",
-    "health:ci": "node scripts/health-check.js --json"
+    "health:ci": "node scripts/health-check.js --json",
+    "build": "echo 'Nothing to build — diagnostic tool only'",
+    "lint": "eslint . --ext .js",
+    "trs:deploy": "npm run health:ci && git add . && git commit -m '🩺 TRS Health Check Auto-Deploy' || echo 'No changes to deploy'"
   },
   "dependencies": {
-    "nodemon": "^3.0.3"
+    "nodemon": "^3.0.3",
+    "chalk": "^5.3.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0"
   }
-}
-"scripts": {
-  "build": "echo 'Nothing to build — diagnostic tool only'",
-  "lint": "eslint . --ext .js",
-  "trs:deploy": "npm run health:ci && git add . && git commit -m '🩺 TRS Health Check Auto-Deploy' || echo 'No changes to deploy'"
-},
-"devDependencies": {
-  "eslint": "^8.57.0",
-  "jest": "^29.7.0"
 }
