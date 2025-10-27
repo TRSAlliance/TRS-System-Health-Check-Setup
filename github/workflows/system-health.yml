@@ -1,23 +1,19 @@
-name: 🩺 TRS System Health Monitor
+# .github/workflows/system-repair.yml  (in TRS-System-Health-Check-Setup)
+name: 🧩 TRS Auto-Repair Chain
 on:
-  schedule:
-    - cron: '0 */6 * * *'   # every 6 hours
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["🩺 TRS System Health Monitor"]
+    types:
+      - completed
 
 jobs:
-  run-health-check:
+  trigger-repair:
+    if: ${{ github.event.workflow_run.conclusion != 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - name: 📡 Dispatch Sentinel Repair
+        uses: benc-uk/workflow-dispatch@v1
         with:
-          node-version: 20
-      - run: npm install
-      - name: Run Health Check
-        run: node scripts/health-check.js
-      - name: Upload Health Report
-        uses: actions/upload-artifact@v3
-        with:
-          name: health-report
-          path: ./health-check-*.json
+          workflow: "TRS Sentinel Auto-Fix"
+          repo: TRSAlliance/sentinel
+          token: ${{ secrets.TRIGGER_TOKEN }}
