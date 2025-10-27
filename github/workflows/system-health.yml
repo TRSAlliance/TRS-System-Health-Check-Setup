@@ -1,0 +1,23 @@
+name: 🩺 TRS System Health Monitor
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours
+  workflow_dispatch:
+
+jobs:
+  run-health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Run Health Check
+        run: node scripts/health-check.js
+      - name: Upload Health Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: health-report
+          path: ./health-check-*.json
