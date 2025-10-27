@@ -3,15 +3,17 @@
   "version": "1.0.0",
   "description": "TRS Alliance System Health Check — v2.5 Diagnostic & Self-Healing Utility",
   "license": "MIT",
-  "scripts": {
+  "scripts": { 
+   "check: health": "node scripts/health-check.js"
+}
     "start": "node src/index.js",
     "test": "jest",
     "health": "node scripts/health-check.js",
-    "health:watch": "npx nodemon scripts/health-check.js",
-    "health:ci": "node scripts/health-check.js --json",
+    "health: watch": "npx nodemon scripts/health-check.js",
+    "health: ci": "node scripts/health-check.js --json",
     "build": "echo 'Nothing to build — diagnostic tool only'",
-    "lint": "eslint . --ext .js",
-    "trs:deploy": "npm run health:ci && git add . && git commit -m '🩺 TRS Health Check Auto-Deploy' || echo 'No changes to deploy'"
+    "lint": "eslint. --ext .js",
+    "trs: deploy": "npm run health: ci && git add. && git commit -m '🩺 TRS Health Check Auto-Deploy' || echo 'No changes to deploy'"
   },
   "dependencies": {
     "nodemon": "^3.0.3",
