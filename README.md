@@ -1,4 +1,4 @@
-# 🩺 TRS SYSTEM HEALTH CHECK SETUP  
+TRS# 🩺 TRS SYSTEM HEALTH CHECK SETUP  
 **Repository:** `TRSAlliance/TRS-System-Health-Check-Setup`  
 **License:** MIT  
 **Status:** Active — v2.4.x (TRS Diagnostic Suite)  
